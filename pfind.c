@@ -9,12 +9,12 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#define QUEUE_SIZE
+#define QUEUE_SIZE 100
 
 int is_dir_searchable(char* dir);
 int searching_thread(void *t);
 void enqueue(char* dirname);
-DIR* dequeue();
+char* dequeue();
 
 // Main thread exit code
 static int exit_code = 0;
@@ -22,7 +22,7 @@ static int exit_code = 0;
 struct queue_node {
     struct queue_node* next;
     struct queue_node* prev;
-    DIR* data;
+    char* data;
 };
 
 struct queue {
@@ -68,20 +68,13 @@ int main(int argc, char* argv[]) {
 }
 
 void enqueue(char* dirname) {
-    // Create the DIR* object for later
-    DIR* dir = opendir(dirname);
-    if (dir == NULL) {
-        perror("Error in open dirname");
-        thrd_exit(EXIT_FAILURE);
-    }
-
     // Create a new queue node
     struct queue_node* node = malloc(sizeof(struct queue_node));
     if (node == NULL) {
         perror("Error creating queue node");
         thrd_exit(EXIT_FAILURE);
     }
-    node->data = dir;
+    node->data = dirname;
 
     mtx_lock(&q_lock);
     // The queue is empty, initialize its head
@@ -101,7 +94,7 @@ void enqueue(char* dirname) {
     mtx_unlock(&q_lock);
 }
 
-DIR* dequeue() {
+char* dequeue() {
     mtx_lock(&q_lock);
     while (dir_q.size == 0) {
         cnd_wait(&q_not_empty, &q_lock);
@@ -124,7 +117,7 @@ DIR* dequeue() {
     dir_q.size -= 1;
     mtx_unlock(&q_lock);
 
-    DIR *node_data = node->data;
+    char *node_data = node->data;
     free(node);
     return node_data;
 }
@@ -132,7 +125,12 @@ DIR* dequeue() {
 int searching_thread(void *t) {
     char* search_term = (char *) t;
     struct stat buff;
-    DIR* op_dir = dequeue();
+    char* dirname = dequeue();
+    DIR* op_dir = opendir(dirname);
+    if (op_dir == NULL) {
+        perror("Error in open dir");
+        thrd_exit(EXIT_FAILURE);
+    }
     errno = 0;
     struct dirent* dir;
     while ((dir = readdir(op_dir)) != NULL) {
@@ -150,6 +148,7 @@ int searching_thread(void *t) {
                 enqueue(dir->d_name);
             } else {
                 printf("Directory %s: Permission denied.\n", dir->d_name);
+                exit_code = 1;
             }
         } else {
             // This is a file
