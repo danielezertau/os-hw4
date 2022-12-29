@@ -1,11 +1,9 @@
-#include <limits.h>
 #include <stdatomic.h>
 #include <threads.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <dirent.h>
-#include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -100,7 +98,7 @@ int main(int argc, char* argv[]) {
 
     // Wait for one of the threads to realize we're done
     mtx_lock(&threads_done_lock);
-    cnd_wait(&threads_done_lock, &threads_done_cv);
+    cnd_wait(&threads_done_cv, &threads_done_lock);
     mtx_unlock(&threads_done_lock);
 
     // Cleanup
@@ -126,7 +124,7 @@ struct queue_node* create_node(void* data) {
 
 void enqueue(void* data, struct queue* queue, mtx_t* lock, cnd_t* cv_to_signal) {
     struct queue_node* node = create_node(data);
-    mtx_lock(&lock);
+    mtx_lock(lock);
     // The queue is empty, initialize its head
     if (queue->head == NULL) {
         queue->head = node;
@@ -140,9 +138,9 @@ void enqueue(void* data, struct queue* queue, mtx_t* lock, cnd_t* cv_to_signal) 
         queue->size += 1;
     }
     if (cv_to_signal != NULL) {
-        cnd_signal(&cv_to_signal);
+        cnd_signal(cv_to_signal);
     }
-    mtx_unlock(&lock);
+    mtx_unlock(lock);
 }
 
 void* dequeue(struct queue* queue, mtx_t* lock, cnd_t* cv_to_wait, struct queue* wait_queue, mtx_t* wait_lock, cnd_t* wait_cv) {
@@ -152,7 +150,7 @@ void* dequeue(struct queue* queue, mtx_t* lock, cnd_t* cv_to_wait, struct queue*
             // Add the thread to the thread queue
             enqueue(cv_to_wait, wait_queue, wait_lock, wait_cv);
         }
-        cnd_wait(&cv_to_wait, &lock);
+        cnd_wait(cv_to_wait, lock);
     }
 
     struct queue_node* node = queue->head;
@@ -170,7 +168,7 @@ void* dequeue(struct queue* queue, mtx_t* lock, cnd_t* cv_to_wait, struct queue*
 }
 
 int searching_thread(void *t) {
-    cnd_t thread_cv = *t;
+    cnd_t* thread_cv = (cnd_t *) t;
 
     // Wait for a signal from the main thread
     mtx_lock(&threads_start_lock);
@@ -181,22 +179,22 @@ int searching_thread(void *t) {
 
     while (1) {
         // Check if we're done
-        mtx_lock(&thread_q);
+        mtx_lock(&thread_q_lock);
         if (thread_q.size == num_threads - 1) {
             // All threads are sleeping expect for me
             cnd_signal(&threads_done_cv);
-            mtx_unlock(&thread_q);
+            mtx_unlock(&thread_q_lock);
             thrd_exit(EXIT_SUCCESS);
         }
-        mtx_unlock(&thread_q);
+        mtx_unlock(&thread_q_lock);
 
         mtx_lock(&dir_q_lock);
         if (thread_q.size >= dir_q.size || dir_q.size == 0) {
             // All directories are assigned. Go so sleep
-            cnd_wait(&thread_cv, &dir_q_lock);
+            cnd_wait(thread_cv, &dir_q_lock);
             mtx_unlock(&dir_q_lock);
         }
-        char *dirname = dequeue(&dir_q, &dir_q_lock, &thread_cv, &thread_q, &thread_q_lock, &thread_q_not_empty);
+        char *dirname = dequeue(&dir_q, &dir_q_lock, thread_cv, &thread_q, &thread_q_lock, &thread_q_not_empty);
         DIR *op_dir = opendir(dirname);
         if (op_dir == NULL) {
             perror("Error in open dirent");
