@@ -21,7 +21,6 @@ static int exit_code = 0;
 
 struct queue_node {
     struct queue_node* next;
-    struct queue_node* prev;
     char* data;
 };
 
@@ -86,7 +85,6 @@ void enqueue(char* dirname) {
         // Add the node to the queue's tail
         struct queue_node* tmp = dir_q.tail;
         tmp->next = node;
-        node->prev = tmp;
         dir_q.tail = node;
         dir_q.size += 1;
     }
@@ -100,21 +98,13 @@ char* dequeue() {
         cnd_wait(&q_not_empty, &q_lock);
     }
 
-    struct queue_node* node = dir_q.tail;
-    // Move tail one step back
-    dir_q.tail = node->prev;
-    // Remove prev pointer from the old tail
-    node->prev = NULL;
-    // Remove next pointer from the new tail
-    if (dir_q.tail != NULL) {
-        dir_q.tail->next = NULL;
-    }
-    // If the list had one element, update the head pointer
-    if (dir_q.tail == NULL) {
-        dir_q.head = NULL;
+    struct queue_node* node = dir_q.head;
+    dir_q.head = node->next;
+    if (dir_q.size == 1) {
+        // The queue is now empty
+        dir_q.tail = dir_q.head;
     }
 
-    dir_q.size -= 1;
     mtx_unlock(&q_lock);
 
     char *node_data = node->data;
