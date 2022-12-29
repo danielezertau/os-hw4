@@ -11,17 +11,9 @@
 
 #define QUEUE_SIZE 100
 
-int is_dir_searchable(char* dir);
-int searching_thread(void *t);
-void enqueue(char* dirname);
-char* dequeue();
-
-// Main thread exit code
-static int exit_code = 0;
-
 struct queue_node {
     struct queue_node* next;
-    char* data;
+    void* data;
 };
 
 struct queue {
@@ -30,7 +22,19 @@ struct queue {
     struct queue_node* tail;
 };
 
+
+
+int is_dir_searchable(char* dir);
+int searching_thread(void *t);
+void enqueue(struct queue_node* node, struct queue* queue);
+void* dequeue(struct queue* queue);
+struct queue_node* create_node(void* data);
+
+// Main thread exit code
+static int exit_code = 0;
+
 struct queue dir_q;
+struct queue thread_q;
 
 mtx_t q_lock;
 cnd_t q_not_empty;
@@ -55,6 +59,10 @@ int main(int argc, char* argv[]) {
     mtx_init(&q_lock, mtx_plain);
     cnd_init(&q_not_empty);
 
+    // Add search root directory to the queue
+    struct queue_node* root_node = create_node(search_root_dir);
+    enqueue(root_node, &dir_q);
+
     // Create threads
     thrd_t *thread_ids = malloc(sizeof(thrd_t) * num_thread);
     for (i = 0; i < num_thread; ++i) {
@@ -63,51 +71,52 @@ int main(int argc, char* argv[]) {
             thrd_exit(EXIT_FAILURE);
         }
     }
-    enqueue(search_root_dir);
 }
 
-void enqueue(char* dirname) {
-    // Create a new queue node
+struct queue_node* create_node(void* data) {
     struct queue_node* node = malloc(sizeof(struct queue_node));
     if (node == NULL) {
-        perror("Error creating queue node");
+        perror("Error creating node");
         thrd_exit(EXIT_FAILURE);
     }
-    node->data = dirname;
+    node->data = data;
+    return node;
+}
 
+void enqueue(struct queue_node* node, struct queue* queue) {
     mtx_lock(&q_lock);
     // The queue is empty, initialize its head
-    if (dir_q.head == NULL) {
-        dir_q.head = node;
-        dir_q.tail = node;
-        dir_q.size = 1;
+    if (queue->head == NULL) {
+        queue->head = node;
+        queue->tail = node;
+        queue->size = 1;
     } else {
         // Add the node to the queue's tail
-        struct queue_node* tmp = dir_q.tail;
+        struct queue_node* tmp = queue->tail;
         tmp->next = node;
-        dir_q.tail = node;
-        dir_q.size += 1;
+        queue->tail = node;
+        queue->size += 1;
     }
     cnd_signal(&q_not_empty);
     mtx_unlock(&q_lock);
 }
 
-char* dequeue() {
+void* dequeue(struct queue* queue) {
     mtx_lock(&q_lock);
-    while (dir_q.size == 0) {
+    while (queue->size == 0) {
         cnd_wait(&q_not_empty, &q_lock);
     }
 
-    struct queue_node* node = dir_q.head;
-    dir_q.head = node->next;
-    if (dir_q.size == 1) {
+    struct queue_node* node = queue->head;
+    queue->head = node->next;
+    if (queue->size == 1) {
         // The queue is now empty
-        dir_q.tail = dir_q.head;
+        queue->tail = queue->head;
     }
 
     mtx_unlock(&q_lock);
 
-    char *node_data = node->data;
+    void *node_data = node->data;
     free(node);
     return node_data;
 }
@@ -115,7 +124,7 @@ char* dequeue() {
 int searching_thread(void *t) {
     char* search_term = (char *) t;
     struct stat buff;
-    char* dirname = dequeue();
+    char* dirname = dequeue(&dir_q);
     DIR* op_dir = opendir(dirname);
     if (op_dir == NULL) {
         perror("Error in open dir");
@@ -135,7 +144,8 @@ int searching_thread(void *t) {
 
         if (S_ISDIR(buff.st_mode)) {
             if (is_dir_searchable(dir->d_name)) {
-                enqueue(dir->d_name);
+                struct queue_node* new_node = create_node(dir->d_name);
+                enqueue(new_node, &dir_q);
             } else {
                 printf("Directory %s: Permission denied.\n", dir->d_name);
                 exit_code = 1;
