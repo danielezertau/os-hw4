@@ -195,6 +195,7 @@ int searching_thread(void *t) {
             cnd_wait(thread_cv, &dir_q_lock);
             mtx_unlock(&dir_q_lock);
         }
+        mtx_unlock(&dir_q_lock);
         char *dirname = dequeue(&dir_q, &dir_q_lock, thread_cv, &thread_q, &thread_q_lock, &thread_q_not_empty);
         DIR *op_dir = opendir(dirname);
         if (op_dir == NULL) {
