@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
     cnd_destroy(&threads_start_cv);
     cnd_destroy(&threads_done_cv);
     cnd_destroy(&thread_q_not_empty);
-    exit(EXIT_SUCCESS);
+    exit(exit_code);
 }
 
 struct queue_node* create_node(void* data) {
