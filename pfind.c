@@ -54,7 +54,8 @@ int main(int argc, char* argv[]) {
     int i, j, expected_num_args = 4;
     // Make sure we got the expected number of arguments
     if (argc != 4) {
-        printf("Wrong number of arguments. Expected: %d, actual: %d", expected_num_args, argc);
+        printf("Wrong number of arguments. Expected: %d, actual: %d\n", expected_num_args, argc);
+        exit(EXIT_FAILURE);
     }
     char* search_root_dir = argv[1];
     search_term = argv[2];
