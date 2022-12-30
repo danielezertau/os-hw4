@@ -193,7 +193,6 @@ int searching_thread(void *t) {
         if (thread_q.size >= dir_q.size || dir_q.size == 0) {
             // All directories are assigned. Go so sleep
             cnd_wait(thread_cv, &dir_q_lock);
-            mtx_unlock(&dir_q_lock);
         }
         mtx_unlock(&dir_q_lock);
         char *dirname = dequeue(&dir_q, &dir_q_lock, thread_cv, &thread_q, &thread_q_lock, &thread_q_not_empty);
