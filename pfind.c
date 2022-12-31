@@ -6,25 +6,39 @@
 #include <dirent.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <limits.h>
 
-struct queue_node {
-    struct queue_node* next;
-    void* data;
+struct dir_queue_node {
+    struct dir_queue_node* next;
+    char data[PATH_MAX];
 };
 
-struct queue {
+struct thread_queue_node {
+    struct thread_queue_node* next;
+    cnd_t *data;
+};
+
+struct dir_queue {
     int size;
-    struct queue_node* head;
-    struct queue_node* tail;
+    struct dir_queue_node* head;
+    struct dir_queue_node* tail;
 };
 
-
+struct thread_queue {
+    int size;
+    struct thread_queue_node* head;
+    struct thread_queue_node* tail;
+};
 
 int is_dir_searchable(char* dir);
 int searching_thread(void *t);
-void enqueue(void* data, struct queue* queue, mtx_t* lock, cnd_t* cv_to_signal);
-void* dequeue(struct queue* queue, mtx_t* lock, cnd_t* cv_to_wait, struct queue* wait_queue, mtx_t* wait_lock, cnd_t* wait_cv);
-struct queue_node* create_node(void* data);
+void dir_enqueue(char data[PATH_MAX], struct dir_queue* queue, mtx_t* lock, cnd_t* cv_to_signal);
+void dir_dequeue(struct dir_queue* queue, mtx_t* lock, cnd_t* cv_to_wait, struct thread_queue* wait_queue, mtx_t* wait_lock, cnd_t* wait_cv, char result_buff[PATH_MAX]);
+void thread_enqueue(cnd_t* data, struct thread_queue* queue, mtx_t* lock, cnd_t* cv_to_signal);
+cnd_t* thread_dequeue(struct thread_queue* queue, mtx_t* lock, cnd_t* cv_to_wait);
+struct dir_queue_node* create_dir_node(char* data);
+struct thread_queue_node* create_thread_node(cnd_t* data);
+int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue);
 
 // Main thread exit code
 static int exit_code = 0;
@@ -34,12 +48,13 @@ static atomic_int num_files = 0;
 static char* search_term;
 // Number of threads
 static int num_threads;
-
+// Wakeup flags
+static int *wakeup_flags;
 // Queues and locks
-struct queue dir_q;
+struct dir_queue dir_q;
 mtx_t dir_q_lock;
 
-struct queue thread_q;
+struct thread_queue thread_q;
 mtx_t thread_q_lock;
 cnd_t thread_q_not_empty;
 
@@ -83,9 +98,10 @@ int main(int argc, char* argv[]) {
     }
 
     // Add search root directory to the queue
-    enqueue(search_root_dir, &dir_q, &dir_q_lock, NULL);
+    dir_enqueue(search_root_dir, &dir_q, &dir_q_lock, NULL);
 
     // Create threads
+    wakeup_flags = malloc(sizeof(int) * num_threads);
     thrd_t *thread_ids = malloc(sizeof(thrd_t) * num_threads);
     for (i = 0; i < num_threads; ++i) {
         if (thrd_create(&thread_ids[i], searching_thread, (void *) &(cvs[i])) != thrd_success) {
@@ -93,12 +109,13 @@ int main(int argc, char* argv[]) {
             thrd_exit(EXIT_FAILURE);
         }
     }
-
     // Signal the threads to start working
+    printf("Waking everybody up\n");
     cnd_broadcast(&threads_start_cv);
 
     // Wait for one of the threads to realize we're done
     mtx_lock(&threads_done_lock);
+    printf("Main thread going to sleep\n");
     cnd_wait(&threads_done_cv, &threads_done_lock);
     mtx_unlock(&threads_done_lock);
 
@@ -113,18 +130,28 @@ int main(int argc, char* argv[]) {
     exit(exit_code);
 }
 
-struct queue_node* create_node(void* data) {
-    struct queue_node* node = malloc(sizeof(struct queue_node));
+struct thread_queue_node* create_thread_node(cnd_t* data) {
+    struct thread_queue_node* node = malloc(sizeof(struct thread_queue_node));
     if (node == NULL) {
         perror("Error creating node");
         thrd_exit(EXIT_FAILURE);
     }
-    node->data = data;
+    memcpy(node->data, data, sizeof(cnd_t));
     return node;
 }
 
-void enqueue(void* data, struct queue* queue, mtx_t* lock, cnd_t* cv_to_signal) {
-    struct queue_node* node = create_node(data);
+struct dir_queue_node* create_dir_node(char* data) {
+    struct dir_queue_node* node = malloc(sizeof(struct dir_queue_node));
+    if (node == NULL) {
+        perror("Error creating node");
+        thrd_exit(EXIT_FAILURE);
+    }
+    strcpy(node->data, data);
+    return node;
+}
+
+void dir_enqueue(char* data, struct dir_queue* queue, mtx_t* lock, cnd_t* cv_to_signal) {
+    struct dir_queue_node* node = create_dir_node(data);
     mtx_lock(lock);
     // The queue is empty, initialize its head
     if (queue->head == NULL) {
@@ -133,7 +160,7 @@ void enqueue(void* data, struct queue* queue, mtx_t* lock, cnd_t* cv_to_signal) 
         queue->size = 1;
     } else {
         // Add the node to the queue's tail
-        struct queue_node* tmp = queue->tail;
+        struct dir_queue_node* tmp = queue->tail;
         tmp->next = node;
         queue->tail = node;
         queue->size += 1;
@@ -144,22 +171,64 @@ void enqueue(void* data, struct queue* queue, mtx_t* lock, cnd_t* cv_to_signal) 
     mtx_unlock(lock);
 }
 
-void* dequeue(struct queue* queue, mtx_t* lock, cnd_t* cv_to_wait, struct queue* wait_queue, mtx_t* wait_lock, cnd_t* wait_cv) {
+void thread_enqueue(cnd_t* data, struct thread_queue* queue, mtx_t* lock, cnd_t* cv_to_signal) {
+    struct thread_queue_node* node = create_thread_node(data);
+    mtx_lock(lock);
+    // The queue is empty, initialize its head
+    if (queue->head == NULL) {
+        queue->head = node;
+        queue->tail = node;
+        queue->size = 1;
+    } else {
+        // Add the node to the queue's tail
+        struct thread_queue_node* tmp = queue->tail;
+        tmp->next = node;
+        queue->tail = node;
+        queue->size += 1;
+    }
+    if (cv_to_signal != NULL) {
+        cnd_signal(cv_to_signal);
+    }
+    printf("Added node with data '%s'\n", (char *)node->data);
+    mtx_unlock(lock);
+}
+
+void dir_dequeue(struct dir_queue* queue, mtx_t* lock, cnd_t* cv_to_wait, struct thread_queue* wait_queue, mtx_t* wait_lock, cnd_t* wait_cv, char result_buff[PATH_MAX]) {
     mtx_lock(lock);
     while (queue->size == 0) {
-        if (wait_queue != NULL) {
-            // Add the thread to the thread queue
-            enqueue(cv_to_wait, wait_queue, wait_lock, wait_cv);
-        }
+        printf("Queue is empty, enqueuing myself\n");
+        // Add the thread to the thread queue
+        thread_enqueue(cv_to_wait, wait_queue, wait_lock, wait_cv);
+        printf("Going to sleep. Bye\n");
         cnd_wait(cv_to_wait, lock);
     }
-
-    struct queue_node* node = queue->head;
+    struct dir_queue_node* node = queue->head;
     queue->head = node->next;
     if (queue->size == 1) {
         // The queue is now empty
         queue->tail = queue->head;
     }
+    queue->size -= 1;
+
+    mtx_unlock(lock);
+
+    strcpy(result_buff, node->data);
+    free(node);
+}
+
+cnd_t* thread_dequeue(struct thread_queue* queue, mtx_t* lock, cnd_t* cv_to_wait) {
+    mtx_lock(lock);
+    while (queue->size == 0) {
+        printf("Going to sleep. Bye\n");
+        cnd_wait(cv_to_wait, lock);
+    }
+    struct thread_queue_node* node = queue->head;
+    queue->head = node->next;
+    if (queue->size == 1) {
+        // The queue is now empty
+        queue->tail = queue->head;
+    }
+    queue->size -= 1;
 
     mtx_unlock(lock);
 
@@ -170,18 +239,32 @@ void* dequeue(struct queue* queue, mtx_t* lock, cnd_t* cv_to_wait, struct queue*
 
 int searching_thread(void *t) {
     cnd_t* thread_cv = (cnd_t *) t;
+    cnd_t *cv_to_signal;
+    char* base_dir_path = malloc(PATH_MAX * sizeof(char));
+    char* curr_dir_path = malloc(PATH_MAX * sizeof(char));
 
     // Wait for a signal from the main thread
     mtx_lock(&threads_start_lock);
     cnd_wait(&threads_start_cv, &threads_start_lock);
     mtx_unlock(&threads_start_lock);
 
+    printf("Searching thread woke up\n");
     struct stat buff;
 
     while (1) {
+        // Check if I'm the only thread and the dir queue is empty
+        mtx_lock(&dir_q_lock);
+        if (num_threads == 1 && dir_q.size == 0) {
+            cnd_signal(&threads_done_cv);
+            mtx_unlock(&dir_q_lock);
+            thrd_exit(EXIT_SUCCESS);
+        }
+        mtx_unlock(&dir_q_lock);
+
         // Check if we're done
         mtx_lock(&thread_q_lock);
-        if (thread_q.size == num_threads - 1) {
+        if (num_threads != 1 && thread_q.size == num_threads - 1) {
+            printf("Everybody's done!\n");
             // All threads are sleeping expect for me
             cnd_signal(&threads_done_cv);
             mtx_unlock(&thread_q_lock);
@@ -192,47 +275,69 @@ int searching_thread(void *t) {
         mtx_lock(&dir_q_lock);
         if (thread_q.size >= dir_q.size || dir_q.size == 0) {
             // All directories are assigned. Go so sleep
+            printf("Nothing for me to do, going to sleep\n");
             cnd_wait(thread_cv, &dir_q_lock);
         }
         mtx_unlock(&dir_q_lock);
-        char *dirname = dequeue(&dir_q, &dir_q_lock, thread_cv, &thread_q, &thread_q_lock, &thread_q_not_empty);
-        DIR *op_dir = opendir(dirname);
-        if (op_dir == NULL) {
-            perror("Error in open dirent");
+        dir_dequeue(&dir_q, &dir_q_lock, thread_cv, &thread_q, &thread_q_lock, &thread_q_not_empty, base_dir_path);
+        DIR *base_dir_op = opendir(base_dir_path);
+        if (base_dir_op == NULL) {
+            perror("Error in opendir");
             thrd_exit(EXIT_FAILURE);
         }
         struct dirent *dirent;
-        while ((dirent = readdir(op_dir)) != NULL) {
+        while ((dirent = readdir(base_dir_op)) != NULL) {
+            if (chdir(base_dir_path) != EXIT_SUCCESS) {
+                perror("Error in chdir");
+                thrd_exit(EXIT_FAILURE);
+            }
             // Skip . and .. entries
             if (strcmp(dirent->d_name, ".") == 0 || strcmp(dirent->d_name, "..") == 0) {
                 continue;
             }
 
+            // Get directory path
+            strcpy(curr_dir_path, base_dir_path);
+            strcat(curr_dir_path, "/");
+            strcat(curr_dir_path, dirent->d_name);
+
             // Get directory type using stat
-            if (stat(dirent->d_name, &buff) != EXIT_SUCCESS) {
+            if (stat(curr_dir_path, &buff) != EXIT_SUCCESS) {
                 perror("Error in stat");
                 thrd_exit(EXIT_FAILURE);
             }
 
             if (S_ISDIR(buff.st_mode)) {
-                if (is_dir_searchable(dirent->d_name)) {
+                if (is_dir_searchable(curr_dir_path) == EXIT_SUCCESS) {
                     // Get the longest sleeping thread
-                    cnd_t *cv_to_signal = dequeue(&thread_q, &thread_q_lock, &thread_q_not_empty, NULL, NULL, NULL);
+                    if (!is_queue_empty(&thread_q_lock, &thread_q)) {
+                        cv_to_signal = thread_dequeue(&thread_q, &thread_q_lock, &thread_q_not_empty);
+                    } else {
+                        cv_to_signal = NULL;
+                    }
                     // Add the directory to the queue and assign it to the thread we just dequeued
-                    enqueue(dirent->d_name, &dir_q, &dir_q_lock, cv_to_signal);
+                    dir_enqueue(curr_dir_path, &dir_q, &dir_q_lock, cv_to_signal);
                 } else {
-                    printf("Directory %s: Permission denied.\n", dirent->d_name);
+                    printf("Directory %s: Permission denied.\n", curr_dir_path);
                     exit_code = EXIT_FAILURE;
                 }
             } else {
                 // This is a file
-                if (strstr(dirent->d_name, search_term) != NULL) {
+                if (strstr(curr_dir_path, search_term) != NULL) {
                     num_files += 1;
-                    printf("%s", dirent->d_name);
+                    printf("%s\n", curr_dir_path);
                 }
             }
         }
     }
+}
+
+int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue) {
+    int res;
+    mtx_lock(queue_lock);
+    res = queue->size;
+    mtx_unlock(queue_lock);
+    return res == 0;
 }
 
 int is_dir_searchable(char* dir) {
