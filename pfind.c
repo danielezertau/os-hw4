@@ -48,9 +48,6 @@ static atomic_int num_files = 0;
 static char* search_term;
 // Number of threads
 static int num_threads;
-// Wakeup flags
-static int *wakeup_flags;
-// Queues and locks
 struct dir_queue dir_q;
 mtx_t dir_q_lock;
 
@@ -96,7 +93,6 @@ int main(int argc, char* argv[]) {
     dir_enqueue(search_root_dir, &dir_q, &dir_q_lock, NULL);
 
     // Create threads
-    wakeup_flags = malloc(sizeof(int) * num_threads);
     thrd_t *thread_ids = malloc(sizeof(thrd_t) * num_threads);
     for (i = 0; i < num_threads; ++i) {
         if (thrd_create(&thread_ids[i], searching_thread, (void *) i) != thrd_success) {
@@ -233,7 +229,7 @@ cnd_t* thread_dequeue(struct thread_queue* queue, mtx_t* lock, cnd_t* cv_to_wait
 }
 
 int searching_thread(void *t) {
-    long thread_idx = (long) t;
+//    long thread_idx = (long) t;
     cnd_t *cv_to_signal;
     cnd_t thread_cv;
     char* base_dir_path = malloc(PATH_MAX * sizeof(char));
@@ -254,7 +250,7 @@ int searching_thread(void *t) {
         if (num_threads == 1 && dir_q.size == 0) {
             cnd_signal(&threads_done_cv);
             mtx_unlock(&dir_q_lock);
-            mtx_destroy(&thread_cv);
+            cnd_destroy(&thread_cv);
             thrd_exit(EXIT_SUCCESS);
         }
         mtx_unlock(&dir_q_lock);
@@ -266,7 +262,7 @@ int searching_thread(void *t) {
             // All threads are sleeping expect for me
             cnd_signal(&threads_done_cv);
             mtx_unlock(&thread_q_lock);
-            mtx_destroy(&thread_cv);
+            cnd_destroy(&thread_cv);
             thrd_exit(EXIT_SUCCESS);
         }
         mtx_unlock(&thread_q_lock);
