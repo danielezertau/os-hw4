@@ -66,7 +66,8 @@ cnd_t threads_done_cv;
 
 
 int main(int argc, char* argv[]) {
-    int i, j, expected_num_args = 4;
+    int expected_num_args = 4;
+    long i;
     // Make sure we got the expected number of arguments
     if (argc != 4) {
         printf("Wrong number of arguments. Expected: %d, actual: %d\n", expected_num_args, argc);
@@ -91,12 +92,6 @@ int main(int argc, char* argv[]) {
     cnd_init(&threads_done_cv);
     cnd_init(&thread_q_not_empty);
 
-    // Create a condition variable for each thread
-    cnd_t* cvs = malloc(sizeof(cnd_t) * num_threads);
-    for (j = 0; j < num_threads; ++j) {
-        cnd_init(&(cvs[j]));
-    }
-
     // Add search root directory to the queue
     dir_enqueue(search_root_dir, &dir_q, &dir_q_lock, NULL);
 
@@ -104,7 +99,7 @@ int main(int argc, char* argv[]) {
     wakeup_flags = malloc(sizeof(int) * num_threads);
     thrd_t *thread_ids = malloc(sizeof(thrd_t) * num_threads);
     for (i = 0; i < num_threads; ++i) {
-        if (thrd_create(&thread_ids[i], searching_thread, (void *) &(cvs[i])) != thrd_success) {
+        if (thrd_create(&thread_ids[i], searching_thread, (void *) i) != thrd_success) {
             perror("Error creating thread");
             thrd_exit(EXIT_FAILURE);
         }
@@ -238,13 +233,15 @@ cnd_t* thread_dequeue(struct thread_queue* queue, mtx_t* lock, cnd_t* cv_to_wait
 }
 
 int searching_thread(void *t) {
-    cnd_t* thread_cv = (cnd_t *) t;
+    long thread_idx = (long) t;
     cnd_t *cv_to_signal;
+    cnd_t thread_cv;
     char* base_dir_path = malloc(PATH_MAX * sizeof(char));
     char* curr_dir_path = malloc(PATH_MAX * sizeof(char));
 
     // Wait for a signal from the main thread
     mtx_lock(&threads_start_lock);
+    cnd_init(&thread_cv);
     cnd_wait(&threads_start_cv, &threads_start_lock);
     mtx_unlock(&threads_start_lock);
 
@@ -257,6 +254,7 @@ int searching_thread(void *t) {
         if (num_threads == 1 && dir_q.size == 0) {
             cnd_signal(&threads_done_cv);
             mtx_unlock(&dir_q_lock);
+            mtx_destroy(&thread_cv);
             thrd_exit(EXIT_SUCCESS);
         }
         mtx_unlock(&dir_q_lock);
@@ -268,6 +266,7 @@ int searching_thread(void *t) {
             // All threads are sleeping expect for me
             cnd_signal(&threads_done_cv);
             mtx_unlock(&thread_q_lock);
+            mtx_destroy(&thread_cv);
             thrd_exit(EXIT_SUCCESS);
         }
         mtx_unlock(&thread_q_lock);
@@ -276,10 +275,10 @@ int searching_thread(void *t) {
         if (thread_q.size >= dir_q.size || dir_q.size == 0) {
             // All directories are assigned. Go so sleep
             printf("Nothing for me to do, going to sleep\n");
-            cnd_wait(thread_cv, &dir_q_lock);
+            cnd_wait(&thread_cv, &dir_q_lock);
         }
         mtx_unlock(&dir_q_lock);
-        dir_dequeue(&dir_q, &dir_q_lock, thread_cv, &thread_q, &thread_q_lock, &thread_q_not_empty, base_dir_path);
+        dir_dequeue(&dir_q, &dir_q_lock, &thread_cv, &thread_q, &thread_q_lock, &thread_q_not_empty, base_dir_path);
         DIR *base_dir_op = opendir(base_dir_path);
         if (base_dir_op == NULL) {
             perror("Error in opendir");
