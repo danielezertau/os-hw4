@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
 
     // Make sure the search root directory is searchable
     if (is_dir_searchable(search_root_dir) != EXIT_SUCCESS) {
-        fprintf(stderr, "Search root directory '%s' is unsearchable: %s", search_root_dir ,strerror(errno));
+        fprintf(stderr, "Search root directory '%s' is unsearchable: %s\n", search_root_dir ,strerror(errno));
         exit(EXIT_FAILURE);
     }
 
