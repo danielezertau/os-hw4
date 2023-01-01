@@ -42,8 +42,7 @@ struct thread_queue_node* create_thread_node(cnd_t* data);
 int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue);
 int is_work_done();
 int is_threads_woke_up();
-void free_thread_queue(struct thread_queue* queue);
-void free_dir_queue(struct dir_queue* queue);
+void free_dir_queue();
 
 // Main thread exit code
 static int exit_code = 0;
@@ -130,12 +129,7 @@ int main(int argc, char* argv[]) {
     // Cleanup
     free(wakeup_flags);
     free(thread_ids);
-    mtx_lock(&dir_q_lock);
-    free_dir_queue(&dir_q);
-    mtx_unlock(&dir_q_lock);
-    mtx_lock(&thread_q_lock);
-    free_thread_queue(&thread_q);
-    mtx_unlock(&thread_q_lock);
+    free_dir_queue();
 
     mtx_destroy(&threads_done_lock);
     mtx_destroy(&threads_woke_up_lock);
@@ -149,30 +143,19 @@ int main(int argc, char* argv[]) {
     exit(exit_code);
 }
 
-void free_dir_queue(struct dir_queue* queue) {
+void free_dir_queue() {
+    mtx_lock(&dir_q_lock);
     struct dir_queue_node* tmp;
-    if (queue->head == NULL) {
+    if (dir_q.head == NULL) {
         return;
     }
-    struct dir_queue_node* curr = queue->head;
+    struct dir_queue_node* curr = dir_q.head;
     while (curr->next != NULL) {
         tmp = curr;
         curr = curr->next;
         free(tmp);
     }
-}
-
-void free_thread_queue(struct thread_queue* queue) {
-    struct thread_queue_node* tmp;
-    if (queue->head == NULL) {
-        return;
-    }
-    struct thread_queue_node* curr = queue->head;
-    while (curr->next != NULL) {
-        tmp = curr;
-        curr = curr->next;
-        free(tmp);
-    }
+    mtx_unlock(&dir_q_lock);
 }
 
 int is_threads_woke_up() {
@@ -286,15 +269,17 @@ cnd_t* thread_dequeue(cnd_t* cv_to_wait) {
     }
     struct thread_queue_node* node = thread_q.head;
     thread_q.head = node->next;
-    if (thread_q.size == 1) {
-        // The queue is now empty
-        thread_q.tail = thread_q.head;
-    }
+    node->next = NULL;
     thread_q.size -= 1;
-
+    if (thread_q.size == 0) {
+        // The queue is now empty
+        thread_q.head = NULL;
+        thread_q.tail = NULL;
+    }
 
     cnd_t *node_data = node->data;
     mtx_unlock(&thread_q_lock);
+    free(node);
     return node_data;
 }
 
