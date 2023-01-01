@@ -78,7 +78,7 @@ int main(int argc, char* argv[]) {
     // Make sure the search root directory is searchable
     if (is_dir_searchable(search_root_dir) != EXIT_SUCCESS) {
         perror("Search root directory is unsearchable");
-        thrd_exit(EXIT_FAILURE);
+        exit(EXIT_FAILURE);
     }
 
     // Initialize locks and condition variables
@@ -95,24 +95,26 @@ int main(int argc, char* argv[]) {
 
     // Create threads
     thrd_t *thread_ids = malloc(sizeof(thrd_t) * num_threads);
+    if (thread_ids == NULL) {
+        perror("Error while creating thread_ids");
+        exit(EXIT_FAILURE);
+    }
     for (i = 0; i < num_threads; ++i) {
         if (thrd_create(&thread_ids[i], searching_thread, (void *) i) != thrd_success) {
-            perror("Error creating thread");
-            thrd_exit(EXIT_FAILURE);
+            perror("Error creating threads");
+            exit(EXIT_FAILURE);
         }
     }
     // Signal the threads to start working
-    sleep(4);
-    printf("Waking everybody up\n");
+    sleep(2);
     cnd_broadcast(&threads_start_cv);
 
     // Wait for one of the threads to realize we're done
     mtx_lock(&threads_done_lock);
-    printf("Main thread going to sleep\n");
     cnd_wait(&threads_done_cv, &threads_done_lock);
-    printf("Main thread woke up\n");
     mtx_unlock(&threads_done_lock);
 
+    printf("Done searching, found %d files\n", num_files);
     // Cleanup
     mtx_destroy(&threads_start_lock);
     mtx_destroy(&threads_done_lock);
@@ -128,7 +130,7 @@ struct thread_queue_node* create_thread_node(cnd_t* data) {
     struct thread_queue_node* node = malloc(sizeof(struct thread_queue_node));
     if (node == NULL) {
         perror("Error creating node");
-        thrd_exit(EXIT_FAILURE);
+        exit_code = 1;
     }
     node->data = data;
     return node;
@@ -138,7 +140,7 @@ struct dir_queue_node* create_dir_node(char* data) {
     struct dir_queue_node* node = malloc(sizeof(struct dir_queue_node));
     if (node == NULL) {
         perror("Error creating node");
-        thrd_exit(EXIT_FAILURE);
+        exit_code = 1;
     }
     strcpy(node->data, data);
     return node;
@@ -195,7 +197,6 @@ void dir_dequeue(cnd_t* cv_to_wait, char result_buff[PATH_MAX]) {
             cnd_wait(cv_to_wait, &dir_q_lock);
         } else {
             // We're done!
-            printf("Everybody's done!\n");
             cnd_signal(&threads_done_cv);
             mtx_unlock(&dir_q_lock);
             cnd_destroy(cv_to_wait);
@@ -254,7 +255,6 @@ int searching_thread(void *t) {
         mtx_lock(&dir_q_lock);
         // Check if we're done
         if (is_work_done()) {
-            printf("Everybody's done!\n");
             cnd_signal(&threads_done_cv);
             mtx_unlock(&dir_q_lock);
             cnd_destroy(&thread_cv);
@@ -272,13 +272,13 @@ int searching_thread(void *t) {
         DIR *base_dir_op = opendir(base_dir_path);
         if (base_dir_op == NULL) {
             perror("Error in opendir");
-            thrd_exit(EXIT_FAILURE);
+            exit_code = 1;
         }
         struct dirent *dirent;
         while ((dirent = readdir(base_dir_op)) != NULL) {
             if (chdir(base_dir_path) != EXIT_SUCCESS) {
-                perror("Error in chdir\n");
-                thrd_exit(EXIT_FAILURE);
+                perror("Error in chdir");
+                exit_code = 1;
             }
             // Skip . and .. entries
             if (strcmp(dirent->d_name, ".") == 0 || strcmp(dirent->d_name, "..") == 0) {
@@ -293,7 +293,7 @@ int searching_thread(void *t) {
             // Get directory type using stat
             if (stat(curr_dir_path, &stat_buff) != EXIT_SUCCESS) {
                 perror("Error in stat");
-                thrd_exit(EXIT_FAILURE);
+                exit_code = 1;
             }
 
             if (S_ISDIR(stat_buff.st_mode)) {
