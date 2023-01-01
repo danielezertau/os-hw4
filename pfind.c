@@ -364,7 +364,6 @@ int searching_thread(void *t) {
                     dir_enqueue(curr_dir_path, cv_to_signal);
                 } else {
                     printf("Directory %s: Permission denied.\n", curr_dir_path);
-                    exit_code = EXIT_FAILURE;
                 }
             } else {
                 // This is a file
