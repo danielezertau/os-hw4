@@ -247,9 +247,7 @@ int searching_thread(void *t) {
     cnd_init(&thread_cv);
     cnd_wait(&threads_start_cv, &threads_start_lock);
     mtx_unlock(&threads_start_lock);
-
-    printf("Searching thread woke up\n");
-    struct stat buff;
+    struct stat stat_buff;
 
     while (1) {
         mtx_lock(&dir_q_lock);
@@ -292,12 +290,12 @@ int searching_thread(void *t) {
             strcat(curr_dir_path, dirent->d_name);
 
             // Get directory type using stat
-            if (stat(curr_dir_path, &buff) != EXIT_SUCCESS) {
+            if (stat(curr_dir_path, &stat_buff) != EXIT_SUCCESS) {
                 perror("Error in stat");
                 thrd_exit(EXIT_FAILURE);
             }
 
-            if (S_ISDIR(buff.st_mode)) {
+            if (S_ISDIR(stat_buff.st_mode)) {
                 if (is_dir_searchable(curr_dir_path) == EXIT_SUCCESS) {
                     // Get the longest sleeping thread
                     if (!is_queue_empty(&thread_q_lock, &thread_q)) {
