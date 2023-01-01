@@ -101,12 +101,12 @@ int main(int argc, char* argv[]) {
     dir_enqueue(search_root_dir, NULL);
 
     // Create threads
-    thrd_t *thread_ids = malloc(sizeof(thrd_t) * num_threads);
+    thrd_t *thread_ids = calloc(num_threads, sizeof(thrd_t));
     if (thread_ids == NULL) {
         fprintf(stderr, "Error while creating thread_ids array: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    wakeup_flags = malloc(sizeof(unsigned char) * num_threads);
+    wakeup_flags = calloc(num_threads, sizeof(unsigned char));
     for (i = 0; i < num_threads; ++i) {
         if (thrd_create(&thread_ids[i], searching_thread, (void *) i) != thrd_success) {
             fprintf(stderr, "Error creating thread %ld: %s\n", i, strerror(errno));
@@ -187,7 +187,7 @@ int is_threads_woke_up() {
 }
 
 struct thread_queue_node* create_thread_node(cnd_t* data) {
-    struct thread_queue_node* node = malloc(sizeof(struct thread_queue_node));
+    struct thread_queue_node* node = calloc(1, sizeof(struct thread_queue_node));
     if (node == NULL) {
         fprintf(stderr, "Error creating thread node: %s\n", strerror(errno));
         exit_code = 1;
@@ -197,7 +197,7 @@ struct thread_queue_node* create_thread_node(cnd_t* data) {
 }
 
 struct dir_queue_node* create_dir_node(char* data) {
-    struct dir_queue_node* node = malloc(sizeof(struct dir_queue_node));
+    struct dir_queue_node* node = calloc(1, sizeof(struct dir_queue_node));
     if (node == NULL) {
         fprintf(stderr, "Error creating dir node: %s\n", strerror(errno));
         exit_code = 1;
