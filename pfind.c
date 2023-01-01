@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <limits.h>
+#include <errno.h>
 
 struct dir_queue_node {
     struct dir_queue_node* next;
@@ -82,7 +83,7 @@ int main(int argc, char* argv[]) {
 
     // Make sure the search root directory is searchable
     if (is_dir_searchable(search_root_dir) != EXIT_SUCCESS) {
-        perror("Search root directory is unsearchable");
+        fprintf(stderr, "Search root directory '%s' is unsearchable: %s", search_root_dir ,strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -102,13 +103,13 @@ int main(int argc, char* argv[]) {
     // Create threads
     thrd_t *thread_ids = malloc(sizeof(thrd_t) * num_threads);
     if (thread_ids == NULL) {
-        perror("Error while creating thread_ids");
+        fprintf(stderr, "Error while creating thread_ids array: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
     }
     wakeup_flags = malloc(sizeof(unsigned char) * num_threads);
     for (i = 0; i < num_threads; ++i) {
         if (thrd_create(&thread_ids[i], searching_thread, (void *) i) != thrd_success) {
-            perror("Error creating threads");
+            fprintf(stderr, "Error creating thread %ld: %s\n", i, strerror(errno));
             exit(EXIT_FAILURE);
         }
     }
@@ -187,7 +188,7 @@ int is_threads_woke_up() {
 struct thread_queue_node* create_thread_node(cnd_t* data) {
     struct thread_queue_node* node = malloc(sizeof(struct thread_queue_node));
     if (node == NULL) {
-        perror("Error creating node");
+        fprintf(stderr, "Error creating thread node: %s\n", strerror(errno));
         exit_code = 1;
     }
     node->data = data;
@@ -197,7 +198,7 @@ struct thread_queue_node* create_thread_node(cnd_t* data) {
 struct dir_queue_node* create_dir_node(char* data) {
     struct dir_queue_node* node = malloc(sizeof(struct dir_queue_node));
     if (node == NULL) {
-        perror("Error creating node");
+        fprintf(stderr, "Error creating dir node: %s\n", strerror(errno));
         exit_code = 1;
     }
     strcpy(node->data, data);
@@ -331,7 +332,7 @@ int searching_thread(void *t) {
         dir_dequeue(&thread_cv, base_dir_path);
         DIR *base_dir_op = opendir(base_dir_path);
         if (base_dir_op == NULL) {
-            perror("Error in opendir");
+            fprintf(stderr, "Error in opendir on '%s': %s\n", base_dir_path, strerror(errno));
             exit_code = 1;
         }
         struct dirent *dirent;
@@ -348,7 +349,7 @@ int searching_thread(void *t) {
 
             // Get directory type using stat
             if (stat(curr_dir_path, &stat_buff) != EXIT_SUCCESS) {
-                perror("Error in stat");
+                fprintf(stderr, "Error in stat on directory '%s': %s\n", curr_dir_path, strerror(errno));
                 exit_code = 1;
             }
 
