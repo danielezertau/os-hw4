@@ -40,6 +40,7 @@ struct dir_queue_node* create_dir_node(char* data);
 struct thread_queue_node* create_thread_node(cnd_t* data);
 int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue);
 int is_work_done();
+int is_threads_woke_up();
 
 // Main thread exit code
 static int exit_code = 0;
@@ -57,10 +58,12 @@ mtx_t thread_q_lock;
 cnd_t thread_q_not_empty;
 
 // Main thread signal
-mtx_t threads_start_lock;
 cnd_t threads_start_cv;
 mtx_t threads_done_lock;
 cnd_t threads_done_cv;
+mtx_t threads_woke_up_lock;
+cnd_t threads_woke_up_cv;
+unsigned char* wakeup_flags;
 
 
 int main(int argc, char* argv[]) {
@@ -82,12 +85,13 @@ int main(int argc, char* argv[]) {
     }
 
     // Initialize locks and condition variables
-    mtx_init(&threads_start_lock, mtx_plain);
     mtx_init(&threads_done_lock, mtx_plain);
+    mtx_init(&threads_woke_up_lock, mtx_plain);
     mtx_init(&dir_q_lock, mtx_plain);
     mtx_init(&thread_q_lock, mtx_plain);
     cnd_init(&threads_start_cv);
     cnd_init(&threads_done_cv);
+    cnd_init(&threads_woke_up_cv);
     cnd_init(&thread_q_not_empty);
 
     // Add search root directory to the queue
@@ -99,14 +103,19 @@ int main(int argc, char* argv[]) {
         perror("Error while creating thread_ids");
         exit(EXIT_FAILURE);
     }
+    wakeup_flags = malloc(sizeof(unsigned char) * num_threads);
     for (i = 0; i < num_threads; ++i) {
         if (thrd_create(&thread_ids[i], searching_thread, (void *) i) != thrd_success) {
             perror("Error creating threads");
             exit(EXIT_FAILURE);
         }
     }
+    mtx_lock(&threads_woke_up_lock);
     // Signal the threads to start working
-    sleep(2);
+    while (! is_threads_woke_up()) {
+        cnd_wait(&threads_woke_up_cv, &threads_woke_up_lock);
+    }
+    mtx_unlock(&threads_woke_up_lock);
     cnd_broadcast(&threads_start_cv);
 
     // Wait for one of the threads to realize we're done
@@ -116,7 +125,6 @@ int main(int argc, char* argv[]) {
 
     printf("Done searching, found %d files\n", num_files);
     // Cleanup
-    mtx_destroy(&threads_start_lock);
     mtx_destroy(&threads_done_lock);
     mtx_destroy(&dir_q_lock);
     mtx_destroy(&thread_q_lock);
@@ -124,6 +132,17 @@ int main(int argc, char* argv[]) {
     cnd_destroy(&threads_done_cv);
     cnd_destroy(&thread_q_not_empty);
     exit(exit_code);
+}
+
+int is_threads_woke_up() {
+    int i, res = 1;
+    for (i = 0; i < num_threads; ++i) {
+        if (wakeup_flags[i] == 0) {
+            res = 0;
+            break;
+        }
+    }
+    return res;
 }
 
 struct thread_queue_node* create_thread_node(cnd_t* data) {
@@ -236,18 +255,22 @@ cnd_t* thread_dequeue(cnd_t* cv_to_wait) {
 }
 
 int searching_thread(void *t) {
-//    long thread_idx = (long) t;
+    long thread_idx = (long) t;
     cnd_t *cv_to_signal;
     cnd_t thread_cv;
     char base_dir_path[PATH_MAX];
     char curr_dir_path[PATH_MAX];
+    struct stat stat_buff;
+
+    cnd_init(&thread_cv);
+    // Raise wake up flag
+    mtx_lock(&threads_woke_up_lock);
+    wakeup_flags[thread_idx] = 1;
+    cnd_signal(&threads_woke_up_cv);
 
     // Wait for a signal from the main thread
-    mtx_lock(&threads_start_lock);
-    cnd_init(&thread_cv);
-    cnd_wait(&threads_start_cv, &threads_start_lock);
-    mtx_unlock(&threads_start_lock);
-    struct stat stat_buff;
+    cnd_wait(&threads_start_cv, &threads_woke_up_lock);
+    mtx_unlock(&threads_woke_up_lock);
 
     while (1) {
         mtx_lock(&dir_q_lock);
