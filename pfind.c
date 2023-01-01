@@ -109,6 +109,7 @@ int main(int argc, char* argv[]) {
     mtx_lock(&threads_done_lock);
     printf("Main thread going to sleep\n");
     cnd_wait(&threads_done_cv, &threads_done_lock);
+    printf("Main thread woke up\n");
     mtx_unlock(&threads_done_lock);
 
     // Cleanup
@@ -277,7 +278,7 @@ int searching_thread(void *t) {
         struct dirent *dirent;
         while ((dirent = readdir(base_dir_op)) != NULL) {
             if (chdir(base_dir_path) != EXIT_SUCCESS) {
-                perror("Error in chdir");
+                perror("Error in chdir\n");
                 thrd_exit(EXIT_FAILURE);
             }
             // Skip . and .. entries
