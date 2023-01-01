@@ -129,7 +129,7 @@ struct thread_queue_node* create_thread_node(cnd_t* data) {
         perror("Error creating node");
         thrd_exit(EXIT_FAILURE);
     }
-    memcpy(node->data, data, sizeof(cnd_t));
+    node->data = data;
     return node;
 }
 
