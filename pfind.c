@@ -39,7 +39,6 @@ void thread_enqueue(cnd_t* data, cnd_t* cv_to_signal);
 cnd_t* thread_dequeue(cnd_t* cv_to_wait);
 struct dir_queue_node* create_dir_node(char* data);
 struct thread_queue_node* create_thread_node(cnd_t* data);
-int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue);
 int is_work_done();
 int is_threads_woke_up();
 void free_dir_queue();
@@ -366,14 +365,6 @@ int searching_thread(void *t) {
             }
         }
     }
-}
-
-int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue) {
-    int res;
-    mtx_lock(queue_lock);
-    res = queue->size;
-    mtx_unlock(queue_lock);
-    return res == 0;
 }
 
 int is_dir_searchable(char* dir) {
