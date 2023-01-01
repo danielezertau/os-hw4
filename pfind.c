@@ -102,6 +102,7 @@ int main(int argc, char* argv[]) {
         }
     }
     // Signal the threads to start working
+    sleep(4);
     printf("Waking everybody up\n");
     cnd_broadcast(&threads_start_cv);
 
