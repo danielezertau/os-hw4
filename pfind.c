@@ -290,7 +290,7 @@ cnd_t* thread_dequeue(cnd_t* cv_to_wait) {
     thread_q.size -= 1;
 
 
-    void *node_data = node->data;
+    cnd_t *node_data = node->data;
     mtx_unlock(&thread_q_lock);
     return node_data;
 }
