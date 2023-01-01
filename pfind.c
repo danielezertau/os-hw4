@@ -39,6 +39,7 @@ cnd_t* thread_dequeue(cnd_t* cv_to_wait);
 struct dir_queue_node* create_dir_node(char* data);
 struct thread_queue_node* create_thread_node(cnd_t* data);
 int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue);
+int is_work_done();
 
 // Main thread exit code
 static int exit_code = 0;
@@ -330,4 +331,8 @@ int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue) {
 
 int is_dir_searchable(char* dir) {
     return access(dir, R_OK | X_OK);
+}
+
+int is_work_done() {
+    return ((num_threads == 1 && dir_q.size == 0) || (num_threads != 1 && thread_q.size == num_threads - 1));
 }
