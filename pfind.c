@@ -213,7 +213,6 @@ void dir_dequeue(cnd_t* cv_to_wait, char result_buff[PATH_MAX]) {
 
 
     strcpy(result_buff, node->data);
-    free(node);
     mtx_unlock(&dir_q_lock);
 }
 
@@ -232,7 +231,6 @@ cnd_t* thread_dequeue(cnd_t* cv_to_wait) {
 
 
     void *node_data = node->data;
-    free(node);
     mtx_unlock(&thread_q_lock);
     return node_data;
 }
