@@ -335,6 +335,7 @@ int searching_thread(void *t) {
         if (base_dir_op == NULL) {
             fprintf(stderr, "Error in opendir on '%s': %s\n", base_dir_path, strerror(errno));
             exit_code = 1;
+            continue;
         }
         struct dirent *dirent;
         while ((dirent = readdir(base_dir_op)) != NULL) {
@@ -352,6 +353,7 @@ int searching_thread(void *t) {
             if (stat(curr_dir_path, &stat_buff) != EXIT_SUCCESS) {
                 fprintf(stderr, "Error in stat on directory '%s': %s\n", curr_dir_path, strerror(errno));
                 exit_code = 1;
+                continue;
             }
 
             if (S_ISDIR(stat_buff.st_mode)) {
