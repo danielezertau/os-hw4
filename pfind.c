@@ -129,6 +129,7 @@ int main(int argc, char* argv[]) {
     printf("Done searching, found %d files\n", num_files);
     // Cleanup
     free(wakeup_flags);
+    free(thread_ids);
     mtx_lock(&dir_q_lock);
     free_dir_queue(&dir_q);
     mtx_unlock(&dir_q_lock);
