@@ -239,8 +239,8 @@ int searching_thread(void *t) {
 //    long thread_idx = (long) t;
     cnd_t *cv_to_signal;
     cnd_t thread_cv;
-    char* base_dir_path = malloc(PATH_MAX * sizeof(char));
-    char* curr_dir_path = malloc(PATH_MAX * sizeof(char));
+    char base_dir_path[PATH_MAX];
+    char curr_dir_path[PATH_MAX];
 
     // Wait for a signal from the main thread
     mtx_lock(&threads_start_lock);
