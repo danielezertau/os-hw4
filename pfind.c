@@ -265,15 +265,18 @@ void dir_dequeue(cnd_t* cv_to_wait, char result_buff[PATH_MAX]) {
     }
     struct dir_queue_node* node = dir_q.head;
     dir_q.head = node->next;
-    if (dir_q.size == 1) {
-        // The queue is now empty
-        dir_q.tail = dir_q.head;
-    }
+    node->next = NULL;
     dir_q.size -= 1;
 
+    if (dir_q.size == 0) {
+        // The queue is now empty
+        dir_q.tail = NULL;
+        dir_q.head = NULL;
+    }
 
-    strcpy(result_buff, node->data);
     mtx_unlock(&dir_q_lock);
+    strcpy(result_buff, node->data);
+    free(node);
 }
 
 cnd_t* thread_dequeue(cnd_t* cv_to_wait) {
