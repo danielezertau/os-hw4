@@ -41,6 +41,8 @@ struct thread_queue_node* create_thread_node(cnd_t* data);
 int is_queue_empty(mtx_t* queue_lock, struct thread_queue* queue);
 int is_work_done();
 int is_threads_woke_up();
+void free_thread_queue(struct thread_queue* queue);
+void free_dir_queue(struct dir_queue* queue);
 
 // Main thread exit code
 static int exit_code = 0;
@@ -125,13 +127,50 @@ int main(int argc, char* argv[]) {
 
     printf("Done searching, found %d files\n", num_files);
     // Cleanup
+    free(wakeup_flags);
+    mtx_lock(&dir_q_lock);
+    free_dir_queue(&dir_q);
+    mtx_unlock(&dir_q_lock);
+    mtx_lock(&thread_q_lock);
+    free_thread_queue(&thread_q);
+    mtx_unlock(&thread_q_lock);
+
     mtx_destroy(&threads_done_lock);
+    mtx_destroy(&threads_woke_up_lock);
     mtx_destroy(&dir_q_lock);
     mtx_destroy(&thread_q_lock);
     cnd_destroy(&threads_start_cv);
     cnd_destroy(&threads_done_cv);
+    cnd_destroy(&threads_woke_up_cv);
     cnd_destroy(&thread_q_not_empty);
+
     exit(exit_code);
+}
+
+void free_dir_queue(struct dir_queue* queue) {
+    struct dir_queue_node* tmp;
+    if (queue->head == NULL) {
+        return;
+    }
+    struct dir_queue_node* curr = queue->head;
+    while (curr->next != NULL) {
+        tmp = curr;
+        curr = curr->next;
+        free(tmp);
+    }
+}
+
+void free_thread_queue(struct thread_queue* queue) {
+    struct thread_queue_node* tmp;
+    if (queue->head == NULL) {
+        return;
+    }
+    struct thread_queue_node* curr = queue->head;
+    while (curr->next != NULL) {
+        tmp = curr;
+        curr = curr->next;
+        free(tmp);
+    }
 }
 
 int is_threads_woke_up() {
