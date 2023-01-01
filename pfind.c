@@ -376,5 +376,5 @@ int is_dir_searchable(char* dir) {
 }
 
 int is_work_done() {
-    return ((num_threads == 1 && dir_q.size == 0) || (num_threads != 1 && thread_q.size == num_threads - 1));
+    return (thread_q.size == num_threads - 1 && dir_q.size == 0);
 }
