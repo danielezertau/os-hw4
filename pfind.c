@@ -364,6 +364,10 @@ int searching_thread(void *t) {
                 }
             }
         }
+        if (closedir(base_dir_op) != EXIT_SUCCESS) {
+            fprintf(stderr, "Error in closedir on '%s': %s\n", base_dir_path, strerror(errno));
+            exit_code = 1;
+        }
     }
 }
 
