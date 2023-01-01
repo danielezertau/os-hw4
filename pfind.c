@@ -274,10 +274,6 @@ int searching_thread(void *t) {
         }
         struct dirent *dirent;
         while ((dirent = readdir(base_dir_op)) != NULL) {
-            if (chdir(base_dir_path) != EXIT_SUCCESS) {
-                perror("Error in chdir");
-                exit_code = 1;
-            }
             // Skip . and .. entries
             if (strcmp(dirent->d_name, ".") == 0 || strcmp(dirent->d_name, "..") == 0) {
                 continue;
