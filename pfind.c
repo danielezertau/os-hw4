@@ -36,7 +36,7 @@ int searching_thread(void *t);
 void dir_enqueue(char data[PATH_MAX], cnd_t* cv_to_signal);
 void dir_dequeue(cnd_t* cv_to_wait, char result_buff[PATH_MAX]);
 void thread_enqueue(cnd_t* data, cnd_t* cv_to_signal);
-cnd_t* thread_dequeue(cnd_t* cv_to_wait);
+cnd_t* thread_dequeue(cnd_t* curr_thread_cv);
 struct dir_queue_node* create_dir_node(char* data);
 struct thread_queue_node* create_thread_node(cnd_t* data);
 int is_work_done();
@@ -261,11 +261,12 @@ void dir_dequeue(cnd_t* cv_to_wait, char result_buff[PATH_MAX]) {
     free(node);
 }
 
-cnd_t* thread_dequeue(cnd_t* cv_to_wait) {
+cnd_t* thread_dequeue(cnd_t* curr_thread_cv) {
     mtx_lock(&thread_q_lock);
     if (thread_q.size == 0) {
+        // If the thread queue is empty, the current thread will parse the directory
         mtx_unlock(&thread_q_lock);
-        return cv_to_wait;
+        return curr_thread_cv;
     }
     struct thread_queue_node* node = thread_q.head;
     thread_q.head = node->next;
