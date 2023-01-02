@@ -263,8 +263,9 @@ void dir_dequeue(cnd_t* cv_to_wait, char result_buff[PATH_MAX]) {
 
 cnd_t* thread_dequeue(cnd_t* cv_to_wait) {
     mtx_lock(&thread_q_lock);
-    while (thread_q.size == 0) {
-        cnd_wait(cv_to_wait, &thread_q_lock);
+    if (thread_q.size == 0) {
+        mtx_unlock(&thread_q_lock);
+        return cv_to_wait;
     }
     struct thread_queue_node* node = thread_q.head;
     thread_q.head = node->next;
@@ -311,6 +312,8 @@ int searching_thread(void *t) {
         }
         // Go to sleep and wait for more work
         if (thread_q.size >= dir_q.size || dir_q.size == 0) {
+            cv_to_signal = thread_dequeue(&thread_cv);
+            cnd_signal(cv_to_signal);
             // All directories are assigned. Go so sleep
             thread_enqueue(&thread_cv, &thread_q_not_empty);
             cnd_wait(&thread_cv, &dir_q_lock);
@@ -346,11 +349,7 @@ int searching_thread(void *t) {
             if (S_ISDIR(stat_buff.st_mode)) {
                 if (is_dir_searchable(curr_dir_path) == EXIT_SUCCESS) {
                     // Get the longest sleeping thread
-                    if (!is_queue_empty(&thread_q_lock, &thread_q)) {
-                        cv_to_signal = thread_dequeue(&thread_q_not_empty);
-                    } else {
-                        cv_to_signal = NULL;
-                    }
+                    cv_to_signal = thread_dequeue(&thread_cv);
                     // Add the directory to the queue and assign it to the thread we just dequeued
                     dir_enqueue(curr_dir_path, cv_to_signal);
                 } else {
